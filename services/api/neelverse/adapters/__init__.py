@@ -1,0 +1,1 @@
+"""Streaming video inference adapters."""
