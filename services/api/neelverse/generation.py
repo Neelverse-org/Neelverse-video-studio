@@ -226,6 +226,7 @@ class GenerationManager:
                 runtime.queue_position = None
 
     async def _worker(self) -> None:
+        load_retry_delay = 0.0
         while True:
             session_id = await self._queue.get()
             runtime = self.sessions[session_id]
@@ -235,10 +236,14 @@ class GenerationManager:
                     continue
                 self.active_session_id = session_id
                 if not self._adapter_loaded:
+                    if load_retry_delay > 0:
+                        logger.info("Waiting %.1fs before retrying adapter load", load_retry_delay)
+                        await asyncio.sleep(load_retry_delay)
                     runtime.status = SessionStatus.LOADING
                     self.database.update_session(session_id, status=runtime.status.value)
                     await self.adapter.load()
                     self._adapter_loaded = True
+                    load_retry_delay = 0.0
                 await self._run(runtime)
             except asyncio.CancelledError:
                 raise
@@ -253,6 +258,9 @@ class GenerationManager:
                     error=runtime.error,
                     ended_at=runtime.ended_at.isoformat(),
                 )
+                # Exponential backoff for adapter load failures
+                if not self._adapter_loaded:
+                    load_retry_delay = min(load_retry_delay * 2 + 5.0, 60.0)
             finally:
                 self.active_session_id = None
                 self._queue.task_done()
@@ -272,25 +280,31 @@ class GenerationManager:
             if runtime.request.record
             else None
         )
+        stream = self.adapter.generate(runtime.spec, runtime.control, runtime.inputs)
         try:
-            async for packet in self.adapter.generate(runtime.spec, runtime.control, runtime.inputs):
-                if runtime.control.cancelled.is_set():
-                    break
-                image = self._normalize_output(packet, runtime)
-                await runtime.frames.publish(image)
-                if recorder is not None:
-                    await asyncio.to_thread(recorder.write, image)
-                runtime.frames_generated += 1
-                recent_times.append(monotonic())
-                if len(recent_times) > 1:
-                    runtime.native_fps = (len(recent_times) - 1) / (recent_times[-1] - recent_times[0])
-                runtime.latency_ms = packet.inference_ms
-                telemetry = self.adapter.telemetry()
-                runtime.vram_used_gb = float(telemetry.get("vram_used_gb", 0))
-                if runtime.frames_generated % 8 == 0:
-                    self.database.update_session(runtime.id, stats_json=self._stats(runtime))
-                if runtime.spec.duration_seconds and monotonic() - started >= runtime.spec.duration_seconds:
-                    break
+            try:
+                async for packet in stream:
+                    if runtime.control.cancelled.is_set():
+                        break
+                    image = self._normalize_output(packet, runtime)
+                    await runtime.frames.publish(image)
+                    if recorder is not None:
+                        await asyncio.to_thread(recorder.write, image)
+                    runtime.frames_generated += 1
+                    recent_times.append(monotonic())
+                    if len(recent_times) > 1:
+                        runtime.native_fps = (len(recent_times) - 1) / (recent_times[-1] - recent_times[0])
+                    runtime.latency_ms = packet.inference_ms
+                    telemetry = self.adapter.telemetry()
+                    runtime.vram_used_gb = float(telemetry.get("vram_used_gb", 0))
+                    if runtime.frames_generated % 8 == 0:
+                        self.database.update_session(runtime.id, stats_json=self._stats(runtime))
+                    if runtime.spec.duration_seconds and monotonic() - started >= runtime.spec.duration_seconds:
+                        break
+            finally:
+                close_stream = getattr(stream, "aclose", None)
+                if close_stream is not None:
+                    await close_stream()
             runtime.status = (
                 SessionStatus.STOPPED if runtime.control.cancelled.is_set() else SessionStatus.COMPLETED
             )
