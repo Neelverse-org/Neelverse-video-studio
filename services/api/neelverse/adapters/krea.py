@@ -51,6 +51,11 @@ class KreaRealtimeAdapter(VideoAdapter):
             device_map="cuda",
             torch_dtype={"default": torch.bfloat16, "vae": torch.float16},
         )
+        if pipe.transformer is None:
+            raise RuntimeError(
+                "Krea transformer failed to load. Check that einops, flash-attn, "
+                "sageattention, and kernels are installed correctly."
+            )
         for block in pipe.transformer.blocks:
             block.self_attn.fuse_projections()
         if self.settings.krea_enable_fp8:

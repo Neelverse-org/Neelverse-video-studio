@@ -23,6 +23,9 @@ dev = ["mypy>=1.17,<2", "ruff>=0.12,<1"]
 gpu = [
   "accelerate>=1.9,<2",
   "diffusers>=0.35,<1",
+  "einops>=0.8,<1",
+  "ftfy>=6.3,<7",
+  "opencv-python>=4.10,<5",
   "python-socketio[asyncio_client]>=5.13,<6",
   "safetensors>=0.5,<1",
   "torch>=2.8,<3",
