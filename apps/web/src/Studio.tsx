@@ -74,6 +74,7 @@ function VideoStage({
 }) {
   const remoteRef = useRef<HTMLVideoElement>(null)
   const localRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
     if (remoteRef.current) remoteRef.current.srcObject = stream
@@ -82,10 +83,45 @@ function VideoStage({
     if (localRef.current) localRef.current.srcObject = localPreview
   }, [localPreview])
 
+  // Poll frames when WebRTC is not connected but session is running
+  useEffect(() => {
+    if (stream || !session?.id || session.status !== 'running') return
+    let active = true
+    const poll = async () => {
+      while (active) {
+        try {
+          const response = await fetch(`/api/sessions/${session.id}/frame`, { credentials: 'include' })
+          if (response.ok && canvasRef.current) {
+            const blob = await response.blob()
+            const bitmap = await createImageBitmap(blob)
+            const ctx = canvasRef.current.getContext('2d')
+            if (ctx) {
+              canvasRef.current.width = bitmap.width
+              canvasRef.current.height = bitmap.height
+              ctx.drawImage(bitmap, 0, 0)
+            }
+            bitmap.close()
+          }
+        } catch { /* polling error, retry */ }
+        await new Promise(resolve => setTimeout(resolve, 120))
+      }
+    }
+    void poll()
+    return () => { active = false }
+  }, [stream, session?.id, session?.status])
+
   return (
     <div className="video-stage">
       {stream ? (
         <video ref={remoteRef} autoPlay playsInline muted className="output-video" />
+      ) : session?.status === 'running' ? (
+        <canvas ref={canvasRef} className="output-video" />
+      ) : session?.status === 'loading' || session?.status === 'warming' ? (
+        <div className="stage-idle">
+          <div className="aurora-orb"><Sparkles size={30} /></div>
+          <h2>{session.status === 'loading' ? 'Loading model...' : 'Warming up GPU...'}</h2>
+          <p>First generation may take a few minutes while models download</p>
+        </div>
       ) : (
         <div className="stage-idle">
           <div className="aurora-orb"><Sparkles size={30} /></div>
@@ -206,7 +242,12 @@ export function Studio({ user, onLogout }: StudioProps) {
         record,
       })
       setSession(created)
-      await rtc.connect(created.id, mode === 'camera')
+      try {
+        await rtc.connect(created.id, mode === 'camera')
+      } catch {
+        // WebRTC failed but generation continues — telemetry still updates via polling
+        console.warn('WebRTC stream unavailable — generation running without live preview')
+      }
       void refreshHistory()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not start generation')

@@ -313,6 +313,24 @@ async def rtc_offer(
     return await negotiate(manager, session_id, offer)
 
 
+@app.get("/api/sessions/{session_id}/frame")
+async def get_frame(session_id: UUID, request: Request, user: CurrentUser) -> Response:
+    """Return the latest generated frame as JPEG for polling-based preview."""
+    manager = manager_from(request)
+    runtime = manager.require(session_id)
+    ensure_owner(runtime, user)
+    _, current, _ = await runtime.frames.snapshot()
+    if current is None:
+        return Response(status_code=204)
+    from io import BytesIO
+
+    from PIL import Image as PILImage
+
+    buffer = BytesIO()
+    PILImage.fromarray(current).save(buffer, format="JPEG", quality=80)
+    return Response(content=buffer.getvalue(), media_type="image/jpeg")
+
+
 @app.get("/api/sessions/{session_id}/download")
 async def download_session(session_id: UUID, request: Request, user: CurrentUser) -> FileResponse:
     row = database_from(request).session_for_user(session_id, user.id)

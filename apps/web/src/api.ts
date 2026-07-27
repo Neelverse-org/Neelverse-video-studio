@@ -73,4 +73,5 @@ export const api = {
       body: JSON.stringify(offer),
     }),
   downloadUrl: (id: string) => `${API_BASE}/sessions/${id}/download`,
+  frameUrl: (id: string) => `${API_BASE}/sessions/${id}/frame`,
 }
