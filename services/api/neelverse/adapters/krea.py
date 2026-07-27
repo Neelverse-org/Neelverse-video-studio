@@ -64,10 +64,21 @@ class KreaRealtimeAdapter(VideoAdapter):
         for block in pipe.transformer.blocks:
             block.self_attn.fuse_projections()
         if self.settings.krea_enable_fp8:
-            from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, quantize_
+            import gc
 
-            for block in pipe.transformer.blocks:
-                quantize_(block, Float8DynamicActivationFloat8WeightConfig())
+            gc.collect()
+            torch.cuda.empty_cache()
+            try:
+                from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, quantize_
+
+                for block in pipe.transformer.blocks:
+                    quantize_(block, Float8DynamicActivationFloat8WeightConfig())
+                gc.collect()
+                torch.cuda.empty_cache()
+            except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+                import logging
+
+                logging.getLogger(__name__).warning("FP8 quantization skipped (OOM): %s", e)
         if self.settings.krea_enable_compile:
             for module in pipe.transformer.modules():
                 if module.__class__.__name__ == "CausalWanAttentionBlock":
