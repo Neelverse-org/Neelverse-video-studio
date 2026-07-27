@@ -40,6 +40,11 @@ class KreaRealtimeAdapter(VideoAdapter):
 
         if not torch.cuda.is_available():
             raise RuntimeError("Krea backend requires an NVIDIA CUDA GPU")
+
+        # Disable SageAttention if not installed — fall back to PyTorch SDPA
+        import os
+        os.environ.setdefault("DISABLE_SAGEATTENTION", "1")
+
         kwargs: dict[str, Any] = {"trust_remote_code": True}
         if self.settings.krea_model_revision:
             kwargs["revision"] = self.settings.krea_model_revision
