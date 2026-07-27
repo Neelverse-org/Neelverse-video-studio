@@ -3,9 +3,9 @@ FROM node:22-alpine AS build
 WORKDIR /workspace
 ARG VITE_ICE_SERVERS_JSON="[]"
 ENV VITE_ICE_SERVERS_JSON=$VITE_ICE_SERVERS_JSON
-COPY package.json package-lock.json ./
+COPY package.json ./
 COPY apps/web/package.json ./apps/web/package.json
-RUN npm ci --workspace apps/web
+RUN npm install --workspace apps/web
 COPY apps/web ./apps/web
 RUN npm run build:web
 

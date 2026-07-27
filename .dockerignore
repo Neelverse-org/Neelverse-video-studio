@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# JavaScript build artifacts
+node_modules
+apps/web/dist
+
+# Python
+__pycache__
+*.py[cod]
+services/api/.venv
+.pytest_cache
+.ruff_cache
+
+# Runtime data
+data/
+models/
+outputs/
+*.db
+*.mp4
+
+# Tooling
+.DS_Store
+.vscode/
+.idea/
